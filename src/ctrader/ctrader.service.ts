@@ -2,17 +2,36 @@ import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { CTraderConnection } from '@max89701/ctrader-layer';
-import { ProtoOAPayloadType } from '../generated/OpenApiModelMessages';
-import {
-  ProtoOAReconcileReq,
-  ProtoOAReconcileRes,
-  ProtoOAClosePositionReq,
-  ProtoOANewOrderReq,
-  ProtoOAOrderType,
-  ProtoOATradeSide,
-  ProtoOAPositionStatus,
-} from '../generated/OpenApiMessages';
 import Bottleneck from 'bottleneck';
+
+// Временные типы до копирования generated файлов
+enum ProtoOAPayloadType {
+  PROTO_OA_APPLICATION_AUTH_REQ = 2100,
+  PROTO_OA_ACCOUNT_AUTH_REQ = 2102,
+  PROTO_OA_GET_ACCOUNTS_BY_ACCESS_TOKEN_REQ = 2149,
+  PROTO_OA_SYMBOLS_LIST_REQ = 2114,
+  PROTO_OA_RECONCILE_REQ = 2124,
+  PROTO_OA_NEW_ORDER_REQ = 2106,
+  PROTO_OA_CLOSE_POSITION_REQ = 2111,
+}
+
+enum ProtoOAPositionStatus {
+  POSITION_STATUS_OPEN = 1,
+  POSITION_STATUS_CLOSED = 2,
+  POSITION_STATUS_CREATED = 3,
+  POSITION_STATUS_ERROR = 4,
+}
+
+enum ProtoOAOrderType {
+  MARKET = 1,
+  LIMIT = 2,
+  STOP = 3,
+}
+
+enum ProtoOATradeSide {
+  BUY = 1,
+  SELL = 2,
+}
 
 interface Command {
   payloadType: ProtoOAPayloadType;
@@ -26,8 +45,8 @@ export class CtraderService implements OnModuleInit {
   private readonly logger = new Logger(CtraderService.name);
   private connection: CTraderConnection;
   private ctidTraderAccountId: string;
-  private positions: ProtoOAReconcileRes['position'] = [];
-  private orders: ProtoOAReconcileRes['order'] = [];
+  private positions: any[] = [];
+  private orders: any[] = [];
   private limiter: Bottleneck;
   private symbols: any[] = [];
 
@@ -111,7 +130,7 @@ export class CtraderService implements OnModuleInit {
   }
 
   async loadSymbols() {
-    const res = await this.sendCommand(
+    const res = await this.sendCommand<any>(
       ProtoOAPayloadType.PROTO_OA_SYMBOLS_LIST_REQ,
       {
         ctidTraderAccountId: Number(this.ctidTraderAccountId),
@@ -123,11 +142,11 @@ export class CtraderService implements OnModuleInit {
 
   async getPositions(ctidTraderAccountId?: string) {
     const accountId = ctidTraderAccountId || this.ctidTraderAccountId;
-    const res = await this.sendCommand<ProtoOAReconcileRes>(
+    const res = await this.sendCommand<any>(
       ProtoOAPayloadType.PROTO_OA_RECONCILE_REQ,
       {
         ctidTraderAccountId: Number(accountId),
-      } as ProtoOAReconcileReq,
+      },
     );
     this.positions = res.position || [];
     this.orders = res.order || [];
@@ -163,7 +182,7 @@ export class CtraderService implements OnModuleInit {
       throw new Error(`Symbol ${symbol} not found`);
     }
 
-    const res = await this.sendCommand(
+    const res = await this.sendCommand<any>(
       ProtoOAPayloadType.PROTO_OA_NEW_ORDER_REQ,
       {
         ctidTraderAccountId: Number(this.ctidTraderAccountId),
@@ -171,19 +190,19 @@ export class CtraderService implements OnModuleInit {
         orderType: ProtoOAOrderType.MARKET,
         tradeSide: side === 'buy' ? ProtoOATradeSide.BUY : ProtoOATradeSide.SELL,
         volume,
-      } as ProtoOANewOrderReq,
+      },
     );
     return res;
   }
 
   async closePosition(positionId: number, volume: number) {
-    const res = await this.sendCommand(
+    const res = await this.sendCommand<any>(
       ProtoOAPayloadType.PROTO_OA_CLOSE_POSITION_REQ,
       {
         ctidTraderAccountId: Number(this.ctidTraderAccountId),
         positionId,
         volume,
-      } as ProtoOAClosePositionReq,
+      },
     );
     return res;
   }

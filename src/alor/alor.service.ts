@@ -6,7 +6,7 @@ export class AlorService implements OnModuleInit {
   private api: AlorApi;
   private token: string;
   private portfolio: string;
-  private exchange: Exchange = Exchange.MOEX;
+  private exchange: 'MOEX' | 'SPBX' = 'MOEX';
 
   onModuleInit() {
     this.token = process.env.ALOR_TOKEN || '';
@@ -18,7 +18,6 @@ export class AlorService implements OnModuleInit {
 
     this.api = new AlorApi({
       token: this.token,
-      refreshToken: this.token,
     });
   }
 
@@ -40,25 +39,19 @@ export class AlorService implements OnModuleInit {
   }
 
   async createMarketOrder(symbol: string, side: Side, qty: number) {
-    // Используем createMarketOrder если доступен, иначе createLimitOrder с типом Market
-    if (this.api.orders.createMarketOrder) {
-      return this.api.orders.createMarketOrder({
-        exchange: this.exchange,
+    // Используем sendMarketOrder для создания рыночного ордера
+    return this.api.orders.sendMarketOrder({
+      side: side as any,
+      quantity: Math.abs(qty),
+      type: 'market',
+      user: {
         portfolio: this.portfolio,
+      },
+      instrument: {
         symbol,
-        side,
-        quantity: qty,
-      });
-    } else {
-      return this.api.orders.createLimitOrder({
         exchange: this.exchange,
-        portfolio: this.portfolio,
-        symbol,
-        side,
-        quantity: qty,
-        type: 'Market',
-      });
-    }
+      },
+    });
   }
 
   async closePosition(symbol: string, qty: number) {

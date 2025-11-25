@@ -22,7 +22,7 @@ export class ArbitrageService {
     private readonly ctraderService: CtraderService,
   ) {}
 
-  async handleOpenSignal(signal: ArbitrageSignal): Promise<void> {
+  async handleOpenSignal(signal: ArbitrageSignal): Promise<any> {
     // Защита от частых запросов
     return this.operationMutex.runExclusive(async () => {
       // Проверяем, нет ли уже открытых позиций
@@ -53,7 +53,7 @@ export class ArbitrageService {
     });
   }
 
-  async handleCloseSignal(signal: ArbitrageSignal): Promise<void> {
+  async handleCloseSignal(signal: ArbitrageSignal): Promise<any> {
     // Защита от частых запросов
     return this.operationMutex.runExclusive(async () => {
       // Получаем позиции по форексу
@@ -63,17 +63,14 @@ export class ArbitrageService {
         throw new Error(`No open positions found for ${signal.ctraderSymbol}`);
       }
 
-      // Закрываем одну позицию на форексе
-      await this.ctraderService.closeOnePosition(signal.ctraderSymbol);
-      // Получаем объем закрытой позиции из списка позиций
-      const closedPositions = await this.ctraderService.getPositionsBySymbol(signal.ctraderSymbol);
-      // Используем объем из сигнала, так как позиция уже закрыта
-      const closedVolume = signal.volume;
+      // Закрываем одну позицию на форексе и получаем объем
+      const closedResult = await this.ctraderService.closeOnePosition(signal.ctraderSymbol);
+      const closedVolume = closedResult.volume || signal.volume;
 
       // Закрываем эквивалентную позицию на алоре
       await this.alorService.closePosition(signal.alorSymbol, closedVolume);
 
-      return { closedCtraderPosition, closedVolume };
+      return { closedVolume };
     });
   }
 
