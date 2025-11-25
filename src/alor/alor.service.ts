@@ -11,7 +11,7 @@ export class AlorService implements OnModuleInit {
   onModuleInit() {
     this.token = process.env.ALOR_TOKEN || '';
     this.portfolio = process.env.ALOR_PORTFOLIO || '';
-    
+
     if (!this.token || !this.portfolio) {
       throw new Error('ALOR_TOKEN and ALOR_PORTFOLIO must be set in environment variables');
     }
@@ -27,7 +27,7 @@ export class AlorService implements OnModuleInit {
 
   async getPositions() {
     return this.api.clientInfo.getPositions({
-      exchange: this.exchange,
+      exchange: this.exchange as any,
       portfolio: this.portfolio,
     });
   }
