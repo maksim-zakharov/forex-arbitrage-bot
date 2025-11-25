@@ -1,12 +1,12 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
-import { AlorApi, Exchange, Side } from 'alor-api';
+import { AlorApi, Exchange, Side, Endpoint, AuthEndpoint, WssEndpoint, WssEndpointBeta } from 'alor-api';
 
 @Injectable()
 export class AlorService implements OnModuleInit {
   private api: AlorApi;
   private token: string;
   private portfolio: string;
-  private exchange: 'MOEX' | 'SPBX' = 'MOEX';
+  private exchange: Exchange = Exchange.MOEX;
 
   onModuleInit() {
     this.token = process.env.ALOR_TOKEN || '';
@@ -18,6 +18,10 @@ export class AlorService implements OnModuleInit {
 
     this.api = new AlorApi({
       token: this.token,
+      endpoint: Endpoint.PROD,
+      authEndpoint: AuthEndpoint.PROD,
+      wssEndpoint: WssEndpoint.PROD,
+      wssEndpointBeta: WssEndpointBeta.PROD,
     });
   }
 
