@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { CTraderConnection } from '@max89701/ctrader-layer';
 import Bottleneck from 'bottleneck';
+import { initializeAuth } from './ctrader-auth.utils';
 
 // Временные типы до копирования generated файлов
 enum ProtoOAPayloadType {
@@ -61,40 +62,80 @@ export class CtraderService implements OnModuleInit {
   }
 
   async onModuleInit() {
+    this.logger.log('🚀 Инициализация cTrader сервиса...');
     await this.init();
   }
 
   async init() {
-    const host = this.configService.get('CTRADER_HOST') || 'live.ctraderapi.com';
-    const port = parseInt(this.configService.get('CTRADER_PORT') || '5035');
+    try {
+      // Проверяем наличие токенов
+      let accessToken = this.configService.get('CTRADER_ACCESS_TOKEN');
+      let refreshToken = this.configService.get('CTRADER_REFRESH_TOKEN');
 
-    this.connection = new CTraderConnection({ host, port });
-    await this.connection.open();
+      // Если токенов нет или они невалидны, выполняем авторизацию через puppeteer
+      if (!accessToken || !refreshToken) {
+        this.logger.log('🔐 Токены отсутствуют, запуск авторизации через Puppeteer...');
+        
+        const tokens = await initializeAuth({
+          username: this.configService.get('CTRADER_USERNAME'),
+          password: this.configService.get('CTRADER_PASSWORD'),
+          client_id: this.configService.get('CTRADER_CLIENT_ID'),
+          client_secret: this.configService.get('CTRADER_CLIENT_SECRET'),
+          redirect_uri: this.configService.get('CTRADER_REDIRECT_URI'),
+          httpService: this.httpService,
+          logger: this.logger,
+        });
 
-    this.logger.log('Авторизация приложения...');
+        accessToken = tokens.accessToken;
+        refreshToken = tokens.refreshToken;
 
-    await this.connection.sendCommand(
-      ProtoOAPayloadType.PROTO_OA_APPLICATION_AUTH_REQ,
-      {
-        clientId: this.configService.get('CTRADER_CLIENT_ID'),
-        clientSecret: this.configService.get('CTRADER_CLIENT_SECRET'),
-      },
-    );
-
-    // Отправка heartbeat каждые 25 секунд
-    setInterval(() => this.connection.sendHeartbeat(), 25000);
-
-    this.logger.log('CTrader успешно авторизован');
-
-    // Выбор аккаунта
-    const accessToken = this.configService.get('CTRADER_ACCESS_TOKEN');
-    if (accessToken) {
-      const selectAccountRes = await this.selectAccount(accessToken);
-      if (selectAccountRes && selectAccountRes.length > 0) {
-        this.ctidTraderAccountId = selectAccountRes[0].ctidTraderAccountId.toString();
-        await this.auth(accessToken, this.ctidTraderAccountId);
-        await this.loadSymbols();
+        this.logger.log('💾 Токены сохранены в конфигурации');
+        // Сохраняем токены (если нужно обновить конфиг)
+        this.configService.set('CTRADER_ACCESS_TOKEN', accessToken);
+        this.configService.set('CTRADER_REFRESH_TOKEN', refreshToken);
+      } else {
+        this.logger.log('✅ Токены уже существуют, пропускаем авторизацию');
       }
+
+      // Подключение к cTrader API
+      const host = this.configService.get('CTRADER_HOST') || 'live.ctraderapi.com';
+      const port = parseInt(this.configService.get('CTRADER_PORT') || '5035');
+
+      this.logger.log(`🔌 Подключение к cTrader API (${host}:${port})...`);
+      this.connection = new CTraderConnection({ host, port });
+      await this.connection.open();
+
+      this.logger.log('🔐 Авторизация приложения...');
+      await this.connection.sendCommand(
+        ProtoOAPayloadType.PROTO_OA_APPLICATION_AUTH_REQ,
+        {
+          clientId: this.configService.get('CTRADER_CLIENT_ID'),
+          clientSecret: this.configService.get('CTRADER_CLIENT_SECRET'),
+        },
+      );
+
+      // Отправка heartbeat каждые 25 секунд
+      setInterval(() => this.connection.sendHeartbeat(), 25000);
+
+      this.logger.log('✅ CTrader приложение успешно авторизовано');
+
+      // Выбор аккаунта
+      if (accessToken) {
+        this.logger.log('👤 Выбор торгового аккаунта...');
+        const selectAccountRes = await this.selectAccount(accessToken);
+        if (selectAccountRes && selectAccountRes.length > 0) {
+          this.ctidTraderAccountId = selectAccountRes[0].ctidTraderAccountId.toString();
+          this.logger.log(`✅ Выбран аккаунт: ${this.ctidTraderAccountId}`);
+          
+          await this.auth(accessToken, this.ctidTraderAccountId);
+          await this.loadSymbols();
+        } else {
+          this.logger.warn('⚠️ Аккаунты не найдены');
+        }
+      }
+    } catch (error) {
+      this.logger.error(`❌ Ошибка инициализации cTrader: ${error.message}`, error.stack);
+      throw error;
     }
   }
 
