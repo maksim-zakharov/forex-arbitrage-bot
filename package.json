@@ -8,7 +8,7 @@
     "start": "nest start",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
-    "start:ci": "node ./scripts/setup-env.js && npm run start:prod",
+    "start:ci": "npm run start:prod",
     "start:prod": "node dist/main"
   },
   "keywords": ["nestjs", "arbitrage", "forex", "alor", "ctrader"],
