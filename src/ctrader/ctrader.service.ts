@@ -1,37 +1,155 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
-import { CTraderLayer } from '@max89701/ctrader-layer';
+import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { HttpService } from '@nestjs/axios';
+import { CTraderConnection } from '@max89701/ctrader-layer';
+import { ProtoOAPayloadType } from '../generated/OpenApiModelMessages';
+import {
+  ProtoOAReconcileReq,
+  ProtoOAReconcileRes,
+  ProtoOAClosePositionReq,
+  ProtoOANewOrderReq,
+  ProtoOAOrderType,
+  ProtoOATradeSide,
+  ProtoOAPositionStatus,
+} from '../generated/OpenApiMessages';
+import Bottleneck from 'bottleneck';
+
+interface Command {
+  payloadType: ProtoOAPayloadType;
+  payload: any;
+  resolve: (value: any) => void;
+  reject: (reason: any) => void;
+}
 
 @Injectable()
 export class CtraderService implements OnModuleInit {
-  private client: CTraderLayer;
-  private accountId: string;
+  private readonly logger = new Logger(CtraderService.name);
+  private connection: CTraderConnection;
+  private ctidTraderAccountId: string;
+  private positions: ProtoOAReconcileRes['position'] = [];
+  private orders: ProtoOAReconcileRes['order'] = [];
+  private limiter: Bottleneck;
+  private symbols: any[] = [];
 
-  onModuleInit() {
-    const host = process.env.CTRADER_HOST || '';
-    const port = parseInt(process.env.CTRADER_PORT || '5032');
-    const clientId = process.env.CTRADER_CLIENT_ID || '';
-    const clientSecret = process.env.CTRADER_CLIENT_SECRET || '';
-    this.accountId = process.env.CTRADER_ACCOUNT_ID || '';
-
-    if (!host || !clientId || !clientSecret || !this.accountId) {
-      throw new Error('CTRADER_HOST, CTRADER_CLIENT_ID, CTRADER_CLIENT_SECRET, and CTRADER_ACCOUNT_ID must be set');
-    }
-
-    this.client = new CTraderLayer({
-      host,
-      port,
-      clientId,
-      clientSecret,
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly httpService: HttpService,
+  ) {
+    this.limiter = new Bottleneck({
+      maxConcurrent: 1,
+      minTime: 250,
     });
   }
 
-  async getPositions() {
-    return this.client.getPositions(this.accountId);
+  async onModuleInit() {
+    await this.init();
+  }
+
+  async init() {
+    const host = this.configService.get('CTRADER_HOST') || 'live.ctraderapi.com';
+    const port = parseInt(this.configService.get('CTRADER_PORT') || '5035');
+
+    this.connection = new CTraderConnection({ host, port });
+    await this.connection.open();
+
+    this.logger.log('Авторизация приложения...');
+
+    await this.connection.sendCommand(
+      ProtoOAPayloadType.PROTO_OA_APPLICATION_AUTH_REQ,
+      {
+        clientId: this.configService.get('CTRADER_CLIENT_ID'),
+        clientSecret: this.configService.get('CTRADER_CLIENT_SECRET'),
+      },
+    );
+
+    // Отправка heartbeat каждые 25 секунд
+    setInterval(() => this.connection.sendHeartbeat(), 25000);
+
+    this.logger.log('CTrader успешно авторизован');
+
+    // Выбор аккаунта
+    const accessToken = this.configService.get('CTRADER_ACCESS_TOKEN');
+    if (accessToken) {
+      const selectAccountRes = await this.selectAccount(accessToken);
+      if (selectAccountRes && selectAccountRes.length > 0) {
+        this.ctidTraderAccountId = selectAccountRes[0].ctidTraderAccountId.toString();
+        await this.auth(accessToken, this.ctidTraderAccountId);
+        await this.loadSymbols();
+      }
+    }
+  }
+
+  get accessToken() {
+    return this.configService.get('CTRADER_ACCESS_TOKEN');
+  }
+
+  async selectAccount(accessToken: string) {
+    try {
+      const res = await this.connection.sendCommand(
+        ProtoOAPayloadType.PROTO_OA_GET_ACCOUNTS_BY_ACCESS_TOKEN_REQ,
+        {
+          accessToken,
+        },
+      );
+      return res.ctidTraderAccount;
+    } catch (e) {
+      this.logger.error(`Error selecting account: ${JSON.stringify(e)}`);
+      return undefined;
+    }
+  }
+
+  async auth(accessToken: string, ctidTraderAccountId: string) {
+    const res = await this.sendCommand(
+      ProtoOAPayloadType.PROTO_OA_ACCOUNT_AUTH_REQ,
+      {
+        ctidTraderAccountId: Number(ctidTraderAccountId),
+        accessToken,
+      },
+    );
+    this.logger.log(`Аккаунт ${ctidTraderAccountId} авторизован`);
+    return res;
+  }
+
+  async loadSymbols() {
+    const res = await this.sendCommand(
+      ProtoOAPayloadType.PROTO_OA_SYMBOLS_LIST_REQ,
+      {
+        ctidTraderAccountId: Number(this.ctidTraderAccountId),
+      },
+    );
+    this.symbols = res.symbol || [];
+    this.logger.log(`Доступно ${this.symbols.length} инструментов`);
+  }
+
+  async getPositions(ctidTraderAccountId?: string) {
+    const accountId = ctidTraderAccountId || this.ctidTraderAccountId;
+    const res = await this.sendCommand<ProtoOAReconcileRes>(
+      ProtoOAPayloadType.PROTO_OA_RECONCILE_REQ,
+      {
+        ctidTraderAccountId: Number(accountId),
+      } as ProtoOAReconcileReq,
+    );
+    this.positions = res.position || [];
+    this.orders = res.order || [];
+    return res;
+  }
+
+  getActivePositions() {
+    return this.positions.filter(
+      (p) => p.positionStatus === ProtoOAPositionStatus.POSITION_STATUS_OPEN,
+    );
   }
 
   async getPositionsBySymbol(symbol: string) {
-    const positions = await this.getPositions();
-    return positions.filter(p => p.symbol === symbol && p.volume > 0);
+    await this.getPositions();
+    const activePositions = this.getActivePositions();
+    const symbolInfo = this.symbols.find((s) => s.symbolName === symbol);
+    if (!symbolInfo) {
+      return [];
+    }
+    return activePositions.filter(
+      (p) => p.symbolId.toString() === symbolInfo.symbolId.toString(),
+    );
   }
 
   async hasOpenPosition(symbol: string): Promise<boolean> {
@@ -40,19 +158,34 @@ export class CtraderService implements OnModuleInit {
   }
 
   async createMarketOrder(symbol: string, side: 'buy' | 'sell', volume: number) {
-    return this.client.createMarketOrder({
-      accountId: this.accountId,
-      symbol,
-      orderType: side === 'buy' ? 'BUY' : 'SELL',
-      volume,
-    });
+    const symbolInfo = this.symbols.find((s) => s.symbolName === symbol);
+    if (!symbolInfo) {
+      throw new Error(`Symbol ${symbol} not found`);
+    }
+
+    const res = await this.sendCommand(
+      ProtoOAPayloadType.PROTO_OA_NEW_ORDER_REQ,
+      {
+        ctidTraderAccountId: Number(this.ctidTraderAccountId),
+        symbolId: Number(symbolInfo.symbolId),
+        orderType: ProtoOAOrderType.MARKET,
+        tradeSide: side === 'buy' ? ProtoOATradeSide.BUY : ProtoOATradeSide.SELL,
+        volume,
+      } as ProtoOANewOrderReq,
+    );
+    return res;
   }
 
-  async closePosition(positionId: string) {
-    return this.client.closePosition({
-      accountId: this.accountId,
-      positionId,
-    });
+  async closePosition(positionId: number, volume: number) {
+    const res = await this.sendCommand(
+      ProtoOAPayloadType.PROTO_OA_CLOSE_POSITION_REQ,
+      {
+        ctidTraderAccountId: Number(this.ctidTraderAccountId),
+        positionId,
+        volume,
+      } as ProtoOAClosePositionReq,
+    );
+    return res;
   }
 
   async closeOnePosition(symbol: string) {
@@ -61,9 +194,46 @@ export class CtraderService implements OnModuleInit {
       throw new Error(`No open positions found for ${symbol}`);
     }
 
-    // Закрываем первую позицию
+    // Закрываем первую позицию полностью
     const positionToClose = positions[0];
-    return this.closePosition(positionToClose.id);
+    // В ProtoOAPosition volume находится в tradeData
+    const volume = positionToClose.tradeData?.volume || 0;
+    if (volume === 0) {
+      throw new Error(`Position ${positionToClose.positionId} has zero volume`);
+    }
+    await this.closePosition(
+      Number(positionToClose.positionId),
+      volume,
+    );
+    return { volume };
+  }
+
+  private async _baseRequest(command: Command) {
+    try {
+      const result = await this.connection.sendCommand(
+        command.payloadType,
+        command.payload,
+      );
+      command.resolve(result);
+    } catch (error) {
+      this.logger.error(`CTrader API error: ${JSON.stringify(error)}`);
+      command.reject(error);
+    }
+  }
+
+  async sendCommand<Response>(
+    payloadType: ProtoOAPayloadType,
+    payload: any,
+  ): Promise<Response> {
+    return new Promise((resolve, reject) => {
+      this.limiter
+        .schedule(() =>
+          this._baseRequest({ payloadType, payload, resolve, reject }),
+        )
+        .catch((error) => {
+          reject(error);
+        });
+    });
   }
 }
 

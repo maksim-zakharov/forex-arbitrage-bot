@@ -64,8 +64,11 @@ export class ArbitrageService {
       }
 
       // Закрываем одну позицию на форексе
-      const closedCtraderPosition = await this.ctraderService.closeOnePosition(signal.ctraderSymbol);
-      const closedVolume = closedCtraderPosition.volume || signal.volume;
+      await this.ctraderService.closeOnePosition(signal.ctraderSymbol);
+      // Получаем объем закрытой позиции из списка позиций
+      const closedPositions = await this.ctraderService.getPositionsBySymbol(signal.ctraderSymbol);
+      // Используем объем из сигнала, так как позиция уже закрыта
+      const closedVolume = signal.volume;
 
       // Закрываем эквивалентную позицию на алоре
       await this.alorService.closePosition(signal.alorSymbol, closedVolume);

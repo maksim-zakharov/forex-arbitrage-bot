@@ -8,17 +8,33 @@
 npm install
 ```
 
+### Копирование сгенерированных типов CTrader
+
+Для работы с CTrader необходимо скопировать сгенерированные типы из проекта `moex-arbitrage-bot`:
+
+```bash
+# Скопируйте папку generated из moex-arbitrage-bot в forex-arbitrage-bot
+cp -r ../moex-arbitrage-bot/src/generated ./src/generated
+```
+
+Или в Windows PowerShell:
+```powershell
+Copy-Item -Path "..\moex-arbitrage-bot\src\generated" -Destination ".\src\generated" -Recurse
+```
+
+Эти файлы содержат TypeScript типы для работы с CTrader Open API протоколом.
+
 ## Настройка
 
 Скопируйте `.env.example` в `.env` и заполните необходимые переменные:
 
 - `ALOR_TOKEN` - токен для Alor API
 - `ALOR_PORTFOLIO` - портфель Alor
-- `CTRADER_HOST` - хост CTrader сервера
-- `CTRADER_PORT` - порт CTrader сервера (по умолчанию 5032)
+- `CTRADER_HOST` - хост CTrader сервера (по умолчанию `live.ctraderapi.com`)
+- `CTRADER_PORT` - порт CTrader сервера (по умолчанию `5035`)
 - `CTRADER_CLIENT_ID` - Client ID для CTrader
 - `CTRADER_CLIENT_SECRET` - Client Secret для CTrader
-- `CTRADER_ACCOUNT_ID` - Account ID для CTrader
+- `CTRADER_ACCESS_TOKEN` - Access Token для CTrader (получается через OAuth)
 
 ## Запуск
 
