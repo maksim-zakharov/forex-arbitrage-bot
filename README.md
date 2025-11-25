@@ -28,7 +28,7 @@ Copy-Item -Path "..\moex-arbitrage-bot\src\generated" -Destination ".\src\genera
 
 Скопируйте `.env.example` в `.env` и заполните необходимые переменные:
 
-- `ALOR_TOKEN` - токен для Alor API
+- `ALOR_REFRESH_TOKEN` - токен для Alor API
 - `ALOR_PORTFOLIO` - портфель Alor
 - `CTRADER_HOST` - хост CTrader сервера (по умолчанию `live.ctraderapi.com`)
 - `CTRADER_PORT` - порт CTrader сервера (по умолчанию `5035`)

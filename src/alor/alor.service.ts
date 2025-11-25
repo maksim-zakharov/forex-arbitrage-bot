@@ -9,11 +9,11 @@ export class AlorService implements OnModuleInit {
   private exchange: Exchange = Exchange.MOEX;
 
   onModuleInit() {
-    this.token = process.env.ALOR_TOKEN || '';
+    this.token = process.env.ALOR_REFRESH_TOKEN || '';
     this.portfolio = process.env.ALOR_PORTFOLIO || '';
 
     if (!this.token || !this.portfolio) {
-      throw new Error('ALOR_TOKEN and ALOR_PORTFOLIO must be set in environment variables');
+      throw new Error('ALOR_REFRESH_TOKEN and ALOR_PORTFOLIO must be set in environment variables');
     }
 
     this.api = new AlorApi({
